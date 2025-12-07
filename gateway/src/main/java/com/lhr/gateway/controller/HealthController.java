@@ -1,5 +1,6 @@
 package com.lhr.gateway.controller;  // 确保是这个包
 
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
@@ -8,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
+@CrossOrigin(origins = "*") // 允许跨域访问
 public class HealthController {
 
     @GetMapping("/gateway/health")

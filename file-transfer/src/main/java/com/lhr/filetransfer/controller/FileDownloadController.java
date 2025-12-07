@@ -7,11 +7,15 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+
 /**
  * @author lhr
  * @additional_information
@@ -27,8 +31,9 @@ public class FileDownloadController {
     @GetMapping("/download")
     public ResponseEntity<Resource> downloadFile(
             @RequestParam String fileName,
-            @RequestParam(required = false) String token, // URL参数方式
+            @RequestParam(required = false) String token,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        // 移除了 HttpServletResponse 参数
 
         // Token验证（支持URL参数和Header两种方式）
         String actualToken = token != null ? token : authHeader;
@@ -44,20 +49,26 @@ public class FileDownloadController {
                 return ResponseEntity.notFound().build();
             }
 
-            // 安全检查
-//            if (!isSafePath(filePath)) {
-//                return ResponseEntity.badRequest().build();
-//            }
-
             // 确定内容类型
             String contentType = determineContentType(filePath);
 
-            // 设置响应头，强制下载
+            // 正确编码文件名
+            String encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8)
+                    .replace("+", "%20")
+                    .replaceAll("%(?![0-9a-fA-F]{2})", "%25") // 转义 % 符号
+                    .replaceAll("\\+", "%20"); // 确保空格是 %20
+
+            // 构建 Content-Disposition 头
+            // 使用 RFC 5987 标准格式，支持 UTF-8 文件名
+            String contentDisposition = String.format("attachment; filename*=UTF-8''%s", encodedFileName);
+
+            // 设置响应头
             HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"");
+            headers.add(HttpHeaders.CONTENT_DISPOSITION, contentDisposition);
             headers.add(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate");
             headers.add(HttpHeaders.PRAGMA, "no-cache");
             headers.add(HttpHeaders.EXPIRES, "0");
+            headers.add(HttpHeaders.CONTENT_LENGTH, String.valueOf(Files.size(filePath)));
 
             return ResponseEntity.ok()
                     .headers(headers)

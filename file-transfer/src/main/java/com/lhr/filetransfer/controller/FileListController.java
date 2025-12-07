@@ -12,7 +12,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "*") // 允许跨域访问
+//@CrossOrigin(origins = "*") // 允许跨域访问
 public class FileListController {
     @Autowired
     private FileListService fileListService;

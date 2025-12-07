@@ -11,7 +11,93 @@ spring:
       discovery:
         locator:
           enabled: false
-      
+
+      # ============== 全局跨域配置 START ==============
+      globalcors:
+        cors-configurations:
+          '[/**]':  # 匹配所有路径
+            # 允许的来源地址（使用通配符匹配所有内网IP）
+            allowed-origin-patterns:
+              # 本地地址
+              - "http://localhost:*"
+              - "http://127.0.0.1:*"
+              - "http://0.0.0.0:*"
+
+              # A类私有地址段: 10.0.0.0/8
+              - "http://10.*.*.*:*"
+              - "https://10.*.*.*:*"
+
+              # B类私有地址段: 172.16.0.0/12
+              - "http://172.16.*.*:*"
+              - "http://172.17.*.*:*"
+              - "http://172.18.*.*:*"
+              - "http://172.19.*.*:*"
+              - "http://172.20.*.*:*"
+              - "http://172.21.*.*:*"
+              - "http://172.22.*.*:*"
+              - "http://172.23.*.*:*"
+              - "http://172.24.*.*:*"
+              - "http://172.25.*.*:*"
+              - "http://172.26.*.*:*"
+              - "http://172.27.*.*:*"
+              - "http://172.28.*.*:*"
+              - "http://172.29.*.*:*"
+              - "http://172.30.*.*:*"
+              - "http://172.31.*.*:*"
+              - "https://172.16.*.*:*"
+              - "https://172.17.*.*:*"
+
+              # C类私有地址段: 192.168.0.0/16
+              - "http://192.168.*.*:*"
+              - "https://192.168.*.*:*"
+
+              # 环回地址和本地主机名
+              - "http://[::1]:*"
+              - "http://localhost:*"
+              - "http://localhost:3000"  # React开发服务器常用端口
+              - "http://localhost:3001"
+              - "http://localhost:8080"  # 常见后端端口
+              - "http://localhost:8081"
+              - "http://localhost:8082"
+              - "http://localhost:8083"
+              - "http://localhost:8888"  # 常见管理端口
+
+              # 通用通配符（开发环境可用，生产环境慎用）
+              # - "*"
+
+            # 允许的HTTP方法（所有常用方法）
+            allowed-methods:
+              - "GET"
+              - "POST"
+              - "PUT"
+              - "DELETE"
+              - "OPTIONS"
+              - "PATCH"
+              - "HEAD"
+              - "TRACE"
+
+            # 允许的请求头（所有头部）
+            allowed-headers:
+              - "*"
+
+            # 允许携带凭证（Cookies、Authorization等）
+            allow-credentials: true
+
+            # 预检请求缓存时间（秒）
+            max-age: 7200  # 2小时
+
+            # 暴露给客户端的响应头
+            exposed-headers:
+              - "Authorization"
+              - "Content-Disposition"
+              - "Content-Type"
+              - "Content-Length"
+              - "X-Request-Id"
+              - "X-Gateway-Request"
+              - "Access-Control-Allow-Origin"
+              - "Access-Control-Allow-Credentials"
+      # ============== 全局跨域配置 END ==============
+
       # 路由配置
       routes:
         # 路由1：将所有请求转发到8081服务
@@ -22,21 +108,46 @@ spring:
           filters:
             # 添加请求头，标识经过网关转发
             - AddRequestHeader=X-Gateway-Request, gateway-service
-            # 记录请求日志
+            # 记录请求日志（如果你有自定义的LoggingFilter）
             - name: LoggingFilter
-            # 可选：限流过滤器
-#            - name: RequestRateLimiter
-#              args:
-#                 redis-rate-limiter.replenishRate: 10  # 每秒允许的请求数
-#                 redis-rate-limiter.burstCapacity: 20  # 每秒最大请求数
-#                 key-resolver: "#{@remoteAddrKeyResolver}"  # 限流键解析器
-  
+
+        # 如果需要配置多个路由，可以继续添加
+        # - id: api-route
+        #   uri: http://localhost:8082
+        #   predicates:
+        #     - Path=/api/**
+        #   filters:
+        #     - AddRequestHeader=X-Gateway-Request, gateway-service
+
+  # WebFlux配置（可选，增强跨域支持）
+  webflux:
+    cors:
+      # 额外的全局CORS配置
+      allowed-origins:
+        - "*"  # 可以在这里添加特定域名
+      allowed-methods:
+        - "*"
+      allowed-headers:
+        - "*"
+      allow-credentials: true
+
   # Actuator配置
   management:
     endpoints:
       web:
         exposure:
           include: health,info,metrics  # 暴露的监控端点
+        # Actuator端点也支持跨域
+        cors:
+          allowed-origins:
+            - "http://localhost:*"
+            - "http://10.*.*.*:*"
+            - "http://172.16.*.*:*"
+            - "http://192.168.*.*:*"
+          allowed-methods:
+            - "GET"
+            - "POST"
+            - "OPTIONS"
     endpoint:
       health:
         show-details: always
@@ -44,7 +155,32 @@ spring:
 # 日志配置
 logging:
   level:
+    # 网关相关日志
     com.example.gateway: DEBUG  # 网关包日志级别
     org.springframework.cloud.gateway: INFO  # Gateway框架日志
+    org.springframework.web.reactive.function.client: WARN  # WebClient日志
+    reactor.netty: WARN  # Netty日志
+
+    # CORS相关调试日志（排查问题时可以打开）
+    # org.springframework.web.cors: DEBUG
+    # org.springframework.web.reactive.handler.SimpleUrlHandlerMapping: DEBUG
+
   file:
     name: logs/gateway.log  # 日志文件路径
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
+
+# 网关特定配置
+gateway:
+  cors:
+    enabled: true
+    # 如果需要，可以在这里添加额外的配置
+    allowed-origins:
+    allowed-methods: "*"
+    allowed-headers: "*"
+    allow-credentials: true
