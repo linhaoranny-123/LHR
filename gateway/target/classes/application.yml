@@ -1,0 +1,50 @@
+server:
+  port: 8088  # 网关服务端口
+
+spring:
+  application:
+    name: gateway-service  # 应用名称
+  
+  cloud:
+    gateway:
+      # 启用服务发现（可选，这里使用静态路由）
+      discovery:
+        locator:
+          enabled: false
+      
+      # 路由配置
+      routes:
+        # 路由1：将所有请求转发到8081服务
+        - id: webapp-route  # 路由ID，唯一标识
+          uri: http://localhost:8081  # 目标服务地址
+          predicates:
+            - Path=/**  # 匹配所有路径
+          filters:
+            # 添加请求头，标识经过网关转发
+            - AddRequestHeader=X-Gateway-Request, gateway-service
+            # 记录请求日志
+            - name: LoggingFilter
+            # 可选：限流过滤器
+            # - name: RequestRateLimiter
+            #   args:
+            #     redis-rate-limiter.replenishRate: 10  # 每秒允许的请求数
+            #     redis-rate-limiter.burstCapacity: 20  # 每秒最大请求数
+            #     key-resolver: "#{@remoteAddrKeyResolver}"  # 限流键解析器
+  
+  # Actuator配置
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics  # 暴露的监控端点
+    endpoint:
+      health:
+        show-details: always
+
+# 日志配置
+logging:
+  level:
+    com.example.gateway: DEBUG  # 网关包日志级别
+    org.springframework.cloud.gateway: INFO  # Gateway框架日志
+  file:
+    name: logs/gateway.log  # 日志文件路径

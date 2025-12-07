@@ -1,0 +1,28 @@
+# 默认配置
+spring:
+  application:
+    name: springboot-test
+  profiles:
+    active: dev  # 默认使用开发环境
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  tomcat:
+    threads:
+      max: 200
+      min: 10
+
+logging:
+  level:
+    com.example.demo: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %-5level - %logger{36} - %msg%n"
+
+app:
+  name: "Spring Boot 3 Test Application"
+  version: "1.0.0"

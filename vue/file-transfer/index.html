@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件上传系统 - 调试模式</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .debug-info {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .debug-controls {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 5px;
+        }
+        
+        .error-details {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <!-- 调试控制面板 -->
+            <div class="debug-controls">
+                <h3>调试面板</h3>
+                <div>
+                    <label>
+                        <input type="checkbox" v-model="debugMode"> 启用调试模式
+                    </label>
+                    <button @click="clearDebugLogs" class="btn btn-secondary" style="margin-left: 10px;">
+                        清除日志
+                    </button>
+                    <button @click="testGatewayConnection" class="btn" style="margin-left: 10px;">
+                        测试网关连接
+                    </button>
+                    <button @click="testDirectConnection" class="btn" style="margin-left: 10px;">
+                        测试直接连接
+                    </button>
+                </div>
+                
+                <div style="margin-top: 10px;">
+                    <label>API地址:</label>
+                    <input type="text" v-model="apiBase" style="width: 300px; margin-left: 10px;">
+                    <button @click="updateApiBase" class="btn" style="margin-left: 10px;">
+                        更新
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 调试信息 -->
+            <div v-if="debugMode" class="debug-info">
+                <div v-for="(log, index) in debugLogs" :key="index">
+                    [{{ log.timestamp }}] {{ log.message }}
+                </div>
+            </div>
+            
+            <!-- 错误详情 -->
+            <div v-if="errorDetails" class="error-details">
+                <strong>错误详情:</strong> {{ errorDetails }}
+            </div>
+            
+            <!-- 消息提示 -->
+            <div v-if="message" class="alert" :class="messageType">
+                {{ message }}
+            </div>
+            
+            <!-- 原来的界面内容 -->
+            <div class="header">
+                <h1>文件上传系统</h1>
+                <p>支持上传最大1GB的文件，文件保存7天后自动删除</p>
+            </div>
+            
+            <div class="content">
+                <div class="form-group">
+                    <label for="token">身份验证 Token</label>
+                    <input 
+                        type="text" 
+                        id="token" 
+                        v-model="token" 
+                        placeholder="请输入您的身份验证 Token"
+                        @input="clearMessages"
+                    >
+                </div>
+                
+                <div 
+                    class="upload-area" 
+                    :class="{ 'dragover': isDragging }"
+                    @click="triggerFileInput"
+                    @drop="handleDrop"
+                    @dragover.prevent="isDragging = true"
+                    @dragleave="isDragging = false"
+                >
+                    <i>📁</i>
+                    <h3>点击或拖拽文件到此处上传</h3>
+                    <p>支持单个文件上传，最大1GB</p>
+                    <input 
+                        type="file" 
+                        ref="fileInput" 
+                        @change="handleFileSelect" 
+                        style="display: none"
+                    >
+                </div>
+                
+                <div v-if="selectedFile" class="file-info">
+                    <h4>已选择文件</h4>
+                    <p><strong>文件名:</strong> {{ selectedFile.name }}</p>
+                    <p><strong>文件大小:</strong> {{ formatFileSize(selectedFile.size) }}</p>
+                    <p><strong>文件类型:</strong> {{ selectedFile.type || '未知' }}</p>
+                </div>
+                
+                <div v-if="uploadProgress > 0" class="progress">
+                    <div class="progress-bar" :style="{ width: uploadProgress + '%' }"></div>
+                </div>
+                
+                <div class="actions">
+                    <button 
+                        class="btn" 
+                        @click="uploadFile" 
+                        :disabled="!selectedFile || !token || uploading"
+                    >
+                        {{ uploading ? '上传中...' : '上传文件' }}
+                    </button>
+                    <button 
+                        class="btn btn-secondary" 
+                        @click="resetForm" 
+                        :disabled="uploading"
+                    >
+                        重置
+                    </button>
+                </div>
+                
+                <div class="file-list">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>文件列表 (共 {{ totalFiles }} 个文件)</h3>
+                        <button class="btn refresh-btn" @click="fetchFileList" :disabled="loadingFileList">
+                            {{ loadingFileList ? '加载中...' : '刷新列表' }}
+                        </button>
+                    </div>
+                    
+                    <div v-if="loadingFileList" class="empty-state">
+                        <p>正在加载文件列表...</p>
+                    </div>
+                    <div v-else-if="displayedFiles.length > 0">
+                        <div class="file-item" v-for="file in displayedFiles" :key="file.fileName">
+                            <div>
+                                <div class="file-name">{{ file.fileName }}</div>
+                                <div class="file-size">{{ formatFileSize(file.fileSize) }}</div>
+                            </div>
+                            <div class="actions">
+                                <button class="icon-btn" @click="downloadFile(file)" title="下载">⬇️</button>
+                                <button class="icon-btn delete-btn" @click="deleteFile(file)" title="删除">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        <i>📄</i>
+                        <p>暂无文件</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <p>文件上传系统 &copy; 2025 - 文件将在7天后自动删除</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, computed } = Vue;
+        
+        createApp({
+            setup() {
+                const token = ref('fk521314');
+                const selectedFile = ref(null);
+                const fileList = ref([]);
+                const uploading = ref(false);
+                const uploadProgress = ref(0);
+                const message = ref('');
+                const messageType = ref('');
+                const isDragging = ref(false);
+                const fileInput = ref(null);
+                const loadingFileList = ref(false);
+                
+                // 调试相关
+                const debugMode = ref(true);
+                const debugLogs = ref([]);
+                const errorDetails = ref('');
+                const apiBase = ref('http://192.168.1.200:8088');
+                
+                // 分页相关
+                const currentPage = ref(1);
+                const pageSize = ref(5);
+                
+                // 计算属性
+                const totalFiles = computed(() => fileList.value.length);
+                const totalPages = computed(() => Math.ceil(totalFiles.value / pageSize.value));
+                const displayedFiles = computed(() => {
+                    const startIndex = (currentPage.value - 1) * pageSize.value;
+                    const endIndex = startIndex + pageSize.value;
+                    return fileList.value.slice(startIndex, endIndex);
+                });
+                
+                // 调试函数
+                const addDebugLog = (msg) => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    debugLogs.value.push({
+                        timestamp: timestamp,
+                        message: msg
+                    });
+                    console.log(`[${timestamp}] ${msg}`);
+                };
+                
+                const clearDebugLogs = () => {
+                    debugLogs.value = [];
+                    errorDetails.value = '';
+                };
+                
+                const updateApiBase = () => {
+                    addDebugLog(`API地址已更新为: ${apiBase.value}`);
+                    localStorage.setItem('apiBase', apiBase.value);
+                };
+                
+                // 消息函数
+                const showMessage = (text, type) => {
+                    message.value = text;
+                    messageType.value = type === 'success' ? 'alert-success' : 'alert-error';
+                    
+                    setTimeout(() => {
+                        clearMessages();
+                    }, 5000);
+                };
+                
+                const clearMessages = () => {
+                    message.value = '';
+                    messageType.value = '';
+                };
+                
+                // 测试连接函数
+                const testGatewayConnection = async () => {
+                    addDebugLog(`开始测试网关连接: ${apiBase.value}`);
+                    
+                    try {
+                        // 测试网关自身
+                        const response = await fetch(`${apiBase.value}/gateway/health`, {
+                            method: 'GET',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        addDebugLog(`网关测试响应状态: ${response.status}`);
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            addDebugLog(`网关测试成功: ${JSON.stringify(result)}`);
+                            showMessage('网关连接测试成功', 'success');
+                        } else {
+                            addDebugLog(`网关测试失败: ${response.status} ${response.statusText}`);
+                            showMessage(`网关连接失败: ${response.status}`, 'error');
+                        }
+                        
+                    } catch (error) {
+                        addDebugLog(`测试连接时发生异常: ${error.message}`);
+                        errorDetails.value = error.message;
+                        showMessage(`连接测试失败: ${error.message}`, 'error');
+                    }
+                };
+                
+                const testDirectConnection = async () => {
+                    const directUrl = 'http://192.168.1.200:8081';
+                    addDebugLog(`测试直接连接: ${directUrl}`);
+                    
+                    try {
+                        const response = await fetch(`${directUrl}/api/fileList`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': token.value,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        addDebugLog(`直接连接响应状态: ${response.status}`);
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            addDebugLog(`直接连接成功: ${JSON.stringify(result).substring(0, 200)}...`);
+                            showMessage('直接连接测试成功', 'success');
+                        } else {
+                            addDebugLog(`直接连接失败: ${response.status} ${response.statusText}`);
+                            showMessage(`直接连接失败: ${response.status}`, 'error');
+                        }
+                    } catch (error) {
+                        addDebugLog(`直接连接异常: ${error.message}`);
+                        errorDetails.value = `直接连接错误: ${error.message}`;
+                        showMessage(`直接连接测试失败: ${error.message}`, 'error');
+                    }
+                };
+                
+                // 文件操作函数
+                const fetchFileList = async () => {
+                    if (!token.value) {
+                        showMessage('请输入身份验证 Token', 'error');
+                        return;
+                    }
+                    
+                    loadingFileList.value = true;
+                    addDebugLog(`开始获取文件列表，URL: ${apiBase.value}/api/fileList`);
+                    
+                    try {
+                        const startTime = Date.now();
+                        
+                        const response = await fetch(`${apiBase.value}/api/fileList`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': token.value,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        const endTime = Date.now();
+                        const duration = endTime - startTime;
+                        
+                        addDebugLog(`请求完成，状态码: ${response.status}，耗时: ${duration}ms`);
+                        
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            addDebugLog(`HTTP错误响应: ${errorText}`);
+                            errorDetails.value = `HTTP ${response.status}: ${errorText}`;
+                            throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+                        }
+                        
+                        const result = await response.json();
+                        addDebugLog(`响应数据: ${JSON.stringify(result).substring(0, 300)}...`);
+                        
+                        if (result.success && result.data) {
+                            fileList.value = result.data;
+                            addDebugLog(`成功加载 ${result.data.length} 个文件`);
+                            showMessage('文件列表加载成功', 'success');
+                        } else {
+                            addDebugLog(`响应格式不符合预期: ${JSON.stringify(result)}`);
+                            fileList.value = [];
+                            showMessage('文件列表加载失败', 'error');
+                        }
+                    } catch (error) {
+                        console.error('获取文件列表失败:', error);
+                        addDebugLog(`获取文件列表异常: ${error.message}`);
+                        errorDetails.value = `获取文件列表失败: ${error.message}`;
+                        showMessage(`获取文件列表失败: ${error.message}`, 'error');
+                        fileList.value = [];
+                    } finally {
+                        loadingFileList.value = false;
+                    }
+                };
+                
+                // 其他文件操作函数（uploadFile, downloadFile, deleteFile等）
+                // 暂时省略，先测试基本功能
+                
+                const triggerFileInput = () => {
+                    fileInput.value.click();
+                };
+                
+                const handleFileSelect = (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        if (file.size > 1073741824) {
+                            showMessage('文件大小不能超过1GB', 'error');
+                            return;
+                        }
+                        selectedFile.value = file;
+                        clearMessages();
+                    }
+                };
+                
+                const handleDrop = (event) => {
+                    event.preventDefault();
+                    isDragging.value = false;
+                    
+                    const files = event.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        if (file.size > 1073741824) {
+                            showMessage('文件大小不能超过1GB', 'error');
+                            return;
+                        }
+                        selectedFile.value = file;
+                        clearMessages();
+                    }
+                };
+                
+                const uploadFile = async () => {
+                    if (!selectedFile.value) {
+                        showMessage('请选择要上传的文件', 'error');
+                        return;
+                    }
+                    
+                    if (!token.value) {
+                        showMessage('请输入身份验证 Token', 'error');
+                        return;
+                    }
+                    
+                    uploading.value = true;
+                    uploadProgress.value = 0;
+                    
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', selectedFile.value);
+                        formData.append('token', token.value);
+                        
+                        const progressInterval = setInterval(() => {
+                            if (uploadProgress.value < 90) {
+                                uploadProgress.value += 10;
+                            }
+                        }, 200);
+                        
+                        const response = await fetch(`${apiBase.value}/api/upload`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        clearInterval(progressInterval);
+                        uploadProgress.value = 100;
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            showMessage(`文件上传成功: ${result.data}`, 'success');
+                            await fetchFileList();
+                            selectedFile.value = null;
+                            if (fileInput.value) {
+                                fileInput.value.value = '';
+                            }
+                        } else {
+                            showMessage(`上传失败: ${result.message}`, 'error');
+                        }
+                    } catch (error) {
+                        showMessage(`上传失败: ${error.message}`, 'error');
+                    } finally {
+                        uploading.value = false;
+                        setTimeout(() => {
+                            uploadProgress.value = 0;
+                        }, 2000);
+                    }
+                };
+                
+                const downloadFile = async (file) => {
+                    if (!token.value) {
+                        showMessage('请输入身份验证 Token', 'error');
+                        return;
+                    }
+                    
+                    try {
+                        const downloadUrl = `${apiBase.value}/api/download?fileName=${encodeURIComponent(file.fileName)}&token=${encodeURIComponent(token.value)}`;
+                        addDebugLog(`下载文件: ${downloadUrl}`);
+                        
+                        const a = document.createElement('a');
+                        a.href = downloadUrl;
+                        a.download = file.fileName;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        
+                        showMessage(`开始下载: ${file.fileName}`, 'success');
+                    } catch (error) {
+                        console.error('下载失败:', error);
+                        showMessage(`下载失败: ${error.message}`, 'error');
+                    }
+                };
+                
+                const deleteFile = async (file) => {
+                    try {
+                        const response = await fetch(`${apiBase.value}/api/delete?fileName=${file.fileName}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': token.value
+                            }
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            showMessage(`文件 "${file.fileName}" 已删除`, 'success');
+                            await fetchFileList();
+                        } else {
+                            showMessage(`删除失败: ${result.message}`, 'error');
+                        }
+                    } catch (error) {
+                        showMessage(`删除失败: ${error.message}`, 'error');
+                    }
+                };
+                
+                const resetForm = () => {
+                    selectedFile.value = null;
+                    if (fileInput.value) {
+                        fileInput.value.value = '';
+                    }
+                    clearMessages();
+                };
+                
+                const formatFileSize = (bytes) => {
+                    if (typeof bytes === 'string') {
+                        return bytes;
+                    }
+                    
+                    if (bytes === 0) return '0 Bytes';
+                    
+                    const k = 1024;
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                };
+                
+                // 初始化
+                onMounted(() => {
+                    addDebugLog('Vue应用已挂载');
+                    
+                    const savedApiBase = localStorage.getItem('apiBase');
+                    if (savedApiBase) {
+                        apiBase.value = savedApiBase;
+                        addDebugLog(`从本地存储加载API地址: ${savedApiBase}`);
+                    }
+                    
+                    const savedToken = localStorage.getItem('uploadToken');
+                    if (savedToken) {
+                        token.value = savedToken;
+                    }
+                    
+                    const tokenInput = document.getElementById('token');
+                    if (tokenInput) {
+                        tokenInput.addEventListener('input', () => {
+                            localStorage.setItem('uploadToken', token.value);
+                        });
+                    }
+                    
+                    // 页面加载时获取文件列表
+                    fetchFileList();
+                });
+                
+                return {
+                    // 原有变量
+                    token,
+                    selectedFile,
+                    fileList,
+                    uploading,
+                    uploadProgress,
+                    message,
+                    messageType,
+                    isDragging,
+                    fileInput,
+                    loadingFileList,
+                    currentPage,
+                    pageSize,
+                    totalFiles,
+                    totalPages,
+                    displayedFiles,
+                    
+                    // 调试变量
+                    debugMode,
+                    debugLogs,
+                    errorDetails,
+                    apiBase,
+                    
+                    // 方法
+                    showMessage,
+                    clearMessages,
+                    fetchFileList,
+                    triggerFileInput,
+                    handleFileSelect,
+                    handleDrop,
+                    uploadFile,
+                    downloadFile,
+                    deleteFile,
+                    resetForm,
+                    formatFileSize,
+                    clearDebugLogs,
+                    testGatewayConnection,
+                    testDirectConnection,
+                    updateApiBase
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
