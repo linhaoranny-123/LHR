@@ -7,10 +7,10 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication
-public class Application {
+public class GatewayApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(Application.class, args);
+        SpringApplication.run(GatewayApplication.class, args);
         System.out.println("网关服务启动成功，端口：8088");
     }
 
