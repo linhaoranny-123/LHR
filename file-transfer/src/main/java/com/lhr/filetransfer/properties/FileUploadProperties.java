@@ -13,6 +13,7 @@ public class FileUploadProperties {
     private String uploadDir;
     private String tokenSecret;
 
+
     // getters and setters
     public String getUploadDir() { return uploadDir; }
     public void setUploadDir(String uploadDir) { this.uploadDir = uploadDir; }
